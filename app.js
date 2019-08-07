@@ -67,7 +67,9 @@ async function handleGetChat(client, m) {
         console.log("SORTED: ", array);
         let result = await db.collection("chats").findOne({users: array}, {projection: {_id: 0, messages: 1}});
         if (result == null) {
-            result = {user: contact, messages: []};
+            result = {contact: contact, messages: []};
+        } else {
+            result = {contact: contact, messages: result.messages};
         }
         console.log("CHAT: ", result);
         client.emit("chat", result);
