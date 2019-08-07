@@ -66,7 +66,7 @@ async function handleGetChat(client, m) {
         console.log("BEFORE SORTED: ", array);
         array.sort();
         console.log("SORTED: ", array);
-        let result = await db.collection("chats").findOne({users: array});
+        let result = await db.collection("chats").findOne({users: array}, {projection: {_id: 0, messages: 1}});
         if (result == null) {
             result = {user: contact, messages: []};
         }
@@ -92,6 +92,32 @@ async function handleGetContacts(client, m) {
     }
 }
 
+async function handleSendMessage(client, m) {
+    try {
+        let thisUser = clientUserMap[client.id];
+        let contact = m.contact;
+        let message = m.message;
+        let array = [thisUser, contact];
+        console.log("BEFORE SORTED: ", array);
+        array.sort();
+        console.log("SORTED: ", array);
+        let res = await db.collection("chats").findOne({users: array});
+        if (res === null) {
+            console.log("no previous messages between this two users:", array);
+            let d = await db.collection("chats").insertOne({users: array, messages: []});
+        }
+        let result = await db.collection("chats").updateOne({users: array}, {$push: {messages: message}});
+        console.log("CHAT RECEIVED OK!");
+        // if (result == null) {
+        //     result = {user: contact, messages: []};
+        // }
+        // console.log("CHAT: ", result);
+        // client.emit("chat", result);
+    } catch (err) {
+        console.log("ERROR receiving chat: ", err);
+    }
+}
+
 io.on("connection", function (client) {
     console.log("A USER CONNECTED!");
     client.on("message", (m) => handleMessage(client, m));
@@ -101,6 +127,7 @@ io.on("connection", function (client) {
     client.on("get:chat", (m) => handleGetChat(client, m));
     client.on("login", (m) => handleLogin(client, m));
     client.on("disconnect", (m) => handleDisconnect(client, m));
+    client.on("send:message", (m) => handleSendMessage(client, m));
 });
 
 server.listen(3000);
