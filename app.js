@@ -58,6 +58,25 @@ function handleAddContact(client, m) {
     db.collection("users").updateOne({user: clientUserMap[client.id]}, {$push: {contacts: m}});
 }
 
+async function handleGetChat(client, m) {
+    try {
+        let thisUser = clientUserMap[client.id];
+        let contact = m;
+        let array = [thisUser, contact];
+        console.log("BEFORE SORTED: ", array);
+        array.sort();
+        console.log("SORTED: ", array);
+        let result = await db.collection("chats").findOne({users: array});
+        if (result == null) {
+            result = {user: contact, messages: []};
+        }
+        console.log("CHAT: ", result);
+        client.emit("chat", result);
+    } catch (err) {
+        console.log("ERROR getting chat: ", err);
+    }
+}
+
 async function handleGetContacts(client, m) {
     try {
         let result = await db.collection("users").findOne({user: clientUserMap[client.id]}, {
@@ -79,6 +98,7 @@ io.on("connection", function (client) {
     client.on("new:user", (m) => handleSignup(client, m));
     client.on("add:contact", (m) => handleAddContact(client, m));
     client.on("get:contacts", (m) => handleGetContacts(client, m));
+    client.on("get:chat", (m) => handleGetChat(client, m));
     client.on("login", (m) => handleLogin(client, m));
     client.on("disconnect", (m) => handleDisconnect(client, m));
 });
