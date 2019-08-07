@@ -32,6 +32,7 @@ function handleSignup(client, m) {
 }
 
 async function handleLogin(client, m) {
+
     clientUserMap[client.id] = m;
     userClientMap[m] = client.id;
     console.log("USER LOGGED IN: ", m);
@@ -46,6 +47,7 @@ async function handleLogin(client, m) {
 }
 
 function handleDisconnect(client, m) {
+
     console.log("USER ", clientUserMap[client.id], " DISCONNECTED");
     let username = clientUserMap[client.id];
     delete userClientMap[username];
@@ -56,9 +58,19 @@ function handleAddContact(client, m) {
     db.collection("users").updateOne({user: clientUserMap[client.id]}, {$push: {contacts: m}});
 }
 
-function handleGetContacts(client, m) {
-    let result = db.collection("users").find({user: clientUserMap[client.id]}, {contacts: 1});
-    client.emit("get:contacts", result);
+async function handleGetContacts(client, m) {
+    try {
+        let result = await db.collection("users").findOne({user: clientUserMap[client.id]}, {
+            projection: {
+                _id: 0,
+                contacts: 1
+            }
+        });
+        console.log("GET CONTACTS RESULTS: ", result);
+        client.emit("contacts", result);
+    } catch (err) {
+        console.log("ERROR GETTING CONTACTS: ", err);
+    }
 }
 
 io.on("connection", function (client) {
