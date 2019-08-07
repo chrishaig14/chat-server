@@ -33,8 +33,8 @@ function handleSignup(client, m) {
 
 async function handleLogin(client, m) {
 
-    clientUserMap[client.id] = m;
-    userClientMap[m] = client.id;
+    clientUserMap[client] = m;
+    userClientMap[m] = client;
     console.log("USER LOGGED IN: ", m);
     console.log("LOGGED USERS:", userClientMap);
     let result = await db.collection("users").findOne({user: m});
@@ -48,19 +48,19 @@ async function handleLogin(client, m) {
 
 function handleDisconnect(client, m) {
 
-    console.log("USER ", clientUserMap[client.id], " DISCONNECTED");
-    let username = clientUserMap[client.id];
+    console.log("USER ", clientUserMap[client], " DISCONNECTED");
+    let username = clientUserMap[client];
     delete userClientMap[username];
-    delete clientUserMap[client.id];
+    delete clientUserMap[client];
 }
 
 function handleAddContact(client, m) {
-    db.collection("users").updateOne({user: clientUserMap[client.id]}, {$push: {contacts: m}});
+    db.collection("users").updateOne({user: clientUserMap[client]}, {$push: {contacts: m}});
 }
 
 async function handleGetChat(client, m) {
     try {
-        let thisUser = clientUserMap[client.id];
+        let thisUser = clientUserMap[client];
         let contact = m;
         let array = [thisUser, contact];
         console.log("BEFORE SORTED: ", array);
@@ -79,7 +79,7 @@ async function handleGetChat(client, m) {
 
 async function handleGetContacts(client, m) {
     try {
-        let result = await db.collection("users").findOne({user: clientUserMap[client.id]}, {
+        let result = await db.collection("users").findOne({user: clientUserMap[client]}, {
             projection: {
                 _id: 0,
                 contacts: 1
@@ -94,7 +94,7 @@ async function handleGetContacts(client, m) {
 
 async function handleSendMessage(client, m) {
     try {
-        let thisUser = clientUserMap[client.id];
+        let thisUser = clientUserMap[client];
         let contact = m.contact;
         let message = m.message;
         let array = [thisUser, contact];
@@ -108,6 +108,11 @@ async function handleSendMessage(client, m) {
         }
         let result = await db.collection("chats").updateOne({users: array}, {$push: {messages: message}});
         console.log("CHAT RECEIVED OK!");
+        if (userClientMap.hasOwnProperty(contact)) {
+            console.log("USER IS CONNECTED!");
+            let socket = userClientMap[contact];
+            socket.emit("new:message", message);
+        }
         // if (result == null) {
         //     result = {user: contact, messages: []};
         // }
