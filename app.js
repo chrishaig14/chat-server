@@ -110,7 +110,7 @@ async function handleSendMessage(client, m) {
         if (userClientMap.hasOwnProperty(contact)) {
             console.log("USER IS CONNECTED!");
             let socket = io.sockets.sockets[userClientMap[contact]];
-            socket.emit("new:message", message);
+            socket.emit("new:message", {contact: thisUser, message: message});
         }
         // if (result == null) {
         //     result = {user: contact, messages: []};
