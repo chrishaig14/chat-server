@@ -28,7 +28,7 @@ var userClientMap = {};
 function handleSignup(client, m) {
     console.log(m);
     console.log("M:", client.id);
-    db.collection("users").insertOne({user: m, contacts: []});
+    db.collection("users").insertOne({user: m, contacts: [], chats: []});
 }
 
 async function handleLogin(client, m) {
@@ -56,16 +56,26 @@ function handleDisconnect(client, m) {
 async function handleAddContact(client, m) {
     let thisUser = clientUserMap[client.id];
 
-    let result = await db.collection("counters").findOne({type: "chats"});
-    let chatId = result.counter.toString();
-    await db.collection("chats").insertOne({
-        chatId: chatId,
-        users: [thisUser, m].sort(),
-        messages: []
-    });
-    db.collection("users").updateOne({user: thisUser}, {$push: {contacts: m, chats: chatId}});
-    db.collection("users").updateOne({user: m}, {$push: {contacts: thisUser, chats: chatId}});
-    db.collection("counters").updateOne({type: "chats"}, {$set: {counter: result.counter + 1}});
+
+    db.collection("users").updateOne({user: thisUser}, {$push: {contacts: m}});
+
+    let other = await db.collection("users").findOne({user: m});
+    console.log("OTHER:CONTACTS: ", other.contacts)
+    if (other.contacts.includes(thisUser)) {
+        let result = await db.collection("counters").findOne({type: "chats"});
+        let chatId = result.counter.toString();
+        await db.collection("chats").insertOne({
+            chatId: chatId,
+            type: "simple",
+            name: "",
+            users: [thisUser, m].sort(),
+            messages: []
+        });
+        db.collection("users").updateOne({user: thisUser}, {$push: {chats: chatId}});
+        db.collection("users").updateOne({user: m}, {$push: {chats: chatId}});
+
+        db.collection("counters").updateOne({type: "chats"}, {$set: {counter: result.counter + 1}});
+    }
     // client.emit()
 }
 
@@ -135,7 +145,7 @@ async function handleSendMessage(client, m) {
         let thisUser = clientUserMap[client.id];
         console.log("RECEIVED MESSAGE: ", m);
         let chatId = m.payload.chatId;
-        let message = {user: thisUser, content: m.payload.message};
+        let message = {user: thisUser, content: m.payload.content};
         // let array = [thisUser, contact];
         // console.log("BEFORE SORTED: ", array);
         // array.sort();
@@ -151,9 +161,12 @@ async function handleSendMessage(client, m) {
         let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
         console.log("USERS IN CHAT: ", users);
         users = users.users.filter(user => user !== thisUser);
-        for (let user in users) {
+        console.log("CNNECTED USERS:", userClientMap);
+        for (let user of users) {
+            console.log("USER IS: ", user);
             if (userClientMap.hasOwnProperty(user)) {
                 let socket = io.sockets.sockets[userClientMap[user]];
+                console.log("SOCKET IS: ", socket);
                 socket.emit("new:message", {chatId: chatId, message: message});
             }
         }
