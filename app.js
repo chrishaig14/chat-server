@@ -96,8 +96,9 @@ async function handleGetContacts(client, m) {
 async function handleSendMessage(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
-        let contact = m.contact;
-        let message = m.message;
+        console.log("RECEIVED MESSAGE: ",m)
+        let contact = m.payload.contact;
+        let message = m.payload.message;
         let array = [thisUser, contact];
         console.log("BEFORE SORTED: ", array);
         array.sort();
@@ -114,6 +115,8 @@ async function handleSendMessage(client, m) {
             let socket = io.sockets.sockets[userClientMap[contact]];
             socket.emit("new:message", {contact: thisUser, message: message});
         }
+        setTimeout(()=>client.emit("ack:message",m.sqn), 10)
+        // client.emit("ack:message",m.sqn)
         // if (result == null) {
         //     result = {user: contact, messages: []};
         // }
