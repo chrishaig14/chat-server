@@ -53,26 +53,63 @@ function handleDisconnect(client, m) {
     delete clientUserMap[client.id];
 }
 
-function handleAddContact(client, m) {
-    db.collection("users").updateOne({user: clientUserMap[client.id]}, {$push: {contacts: m}});
+async function handleAddContact(client, m) {
+    let thisUser = clientUserMap[client.id];
+
+    let result = await db.collection("counters").findOne({type: "chats"});
+    let chatId = result.counter.toString();
+    await db.collection("chats").insertOne({
+        chatId: chatId,
+        users: [thisUser, m].sort(),
+        messages: []
+    });
+    db.collection("users").updateOne({user: thisUser}, {$push: {contacts: m, chats: chatId}});
+    db.collection("users").updateOne({user: m}, {$push: {contacts: thisUser, chats: chatId}});
+    db.collection("counters").updateOne({type: "chats"}, {$set: {counter: result.counter + 1}});
+    // client.emit()
 }
 
 async function handleGetChat(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
-        let contact = m;
-        let array = [thisUser, contact];
-        console.log("BEFORE SORTED: ", array);
-        array.sort();
-        console.log("SORTED: ", array);
-        let result = await db.collection("chats").findOne({users: array}, {projection: {_id: 0, messages: 1}});
-        if (result == null) {
-            result = {contact: contact, messages: []};
-        } else {
-            result = {contact: contact, messages: result.messages};
-        }
+        let chatId = m;
+        let result = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0}});
+        // if (result == null) {
+        //     result = {contact: contact, messages: []};
+        // } else {
+        //     result = {contact: contact, messages: result.messages};
+        // }
         console.log("CHAT: ", result);
         client.emit("chat", result);
+    } catch (err) {
+        console.log("ERROR getting chat: ", err);
+    }
+}
+
+async function handleGetAllChats(client, m) {
+    try {
+        let thisUser = clientUserMap[client.id];
+        let result = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
+        console.log("RESULSSS:: ", result);
+        result = await db.collection("chats").find({chatId: {$in: result.chats}}, {
+            projection: {
+                _id: 0,
+                chatId: 1,
+                users: 1
+            }
+        });
+        console.log("aaaaaa:: ", result);
+        let all = await result.toArray();
+        // console.log("*****#####:: ", result);
+        console.log("#####:: ", all);
+        let chats = {};
+        for (let a of all) {
+            console.log("USERS: ", a);
+            chats[a.chatId] = {users: a.users, messages: [], newMessages: false};
+        }
+        console.log("ALL CHATS: ", chats);
+        console.log("ALL CHATS: ", {chats: chats});
+        client.emit("all:chats", {chats});
     } catch (err) {
         console.log("ERROR getting chat: ", err);
     }
@@ -96,26 +133,31 @@ async function handleGetContacts(client, m) {
 async function handleSendMessage(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
-        console.log("RECEIVED MESSAGE: ",m)
-        let contact = m.payload.contact;
-        let message = m.payload.message;
-        let array = [thisUser, contact];
-        console.log("BEFORE SORTED: ", array);
-        array.sort();
-        console.log("SORTED: ", array);
-        let res = await db.collection("chats").findOne({users: array});
-        if (res === null) {
-            console.log("no previous messages between this two users:", array);
-            let d = await db.collection("chats").insertOne({users: array, messages: []});
-        }
-        let result = await db.collection("chats").updateOne({users: array}, {$push: {messages: message}});
+        console.log("RECEIVED MESSAGE: ", m);
+        let chatId = m.payload.chatId;
+        let message = {user: thisUser, content: m.payload.message};
+        // let array = [thisUser, contact];
+        // console.log("BEFORE SORTED: ", array);
+        // array.sort();
+        // console.log("SORTED: ", array);
+        // let res = await db.collection("chats").findOne({});
+        // if (res === null) {
+        //     console.log("no previous messages between this two users:", array);
+        //     let d = await db.collection("chats").insertOne({chatId: chatId, messages: []});
+        // }
+        console.log("CHAT ID: ", chatId);
+        let result = await db.collection("chats").updateOne({chatId: chatId}, {$push: {messages: message}});
         console.log("CHAT RECEIVED OK!");
-        if (userClientMap.hasOwnProperty(contact)) {
-            console.log("USER IS CONNECTED!");
-            let socket = io.sockets.sockets[userClientMap[contact]];
-            socket.emit("new:message", {contact: thisUser, message: message});
+        let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
+        console.log("USERS IN CHAT: ", users);
+        users = users.users.filter(user => user !== thisUser);
+        for (let user in users) {
+            if (userClientMap.hasOwnProperty(user)) {
+                let socket = io.sockets.sockets[userClientMap[user]];
+                socket.emit("new:message", {chatId: chatId, message: message});
+            }
         }
-        setTimeout(()=>client.emit("ack:message",m.sqn), 10)
+        setTimeout(() => client.emit("ack:message", m.sqn), 10);
         // client.emit("ack:message",m.sqn)
         // if (result == null) {
         //     result = {user: contact, messages: []};
@@ -134,6 +176,7 @@ io.on("connection", function (client) {
     client.on("add:contact", (m) => handleAddContact(client, m));
     client.on("get:contacts", (m) => handleGetContacts(client, m));
     client.on("get:chat", (m) => handleGetChat(client, m));
+    client.on("get:all:chats", (m) => handleGetAllChats(client, m));
     client.on("login", (m) => handleLogin(client, m));
     client.on("disconnect", (m) => handleDisconnect(client, m));
     client.on("send:message", (m) => handleSendMessage(client, m));
