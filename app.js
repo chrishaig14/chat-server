@@ -53,32 +53,6 @@ function handleDisconnect(client, m) {
     delete clientUserMap[client.id];
 }
 
-// async function handleAddContact(client, m) {
-//     let thisUser = clientUserMap[client.id];
-//
-//
-//     db.collection("users").updateOne({user: thisUser}, {$push: {contacts: m}});
-//
-//     let other = await db.collection("users").findOne({user: m});
-//     console.log("OTHER:CONTACTS: ", other.contacts)
-//     if (other.contacts.includes(thisUser)) {
-//         let result = await db.collection("counters").findOne({type: "chats"});
-//         let chatId = result.counter.toString();
-//         await db.collection("chats").insertOne({
-//             chatId: chatId,
-//             type: "simple",
-//             name: "",
-//             users: [thisUser, m].sort(),
-//             messages: []
-//         });
-//         db.collection("users").updateOne({user: thisUser}, {$push: {chats: chatId}});
-//         db.collection("users").updateOne({user: m}, {$push: {chats: chatId}});
-//
-//         db.collection("counters").updateOne({type: "chats"}, {$set: {counter: result.counter + 1}});
-//     }
-//     // client.emit()
-// }
-
 async function dbNewChat(chat) {
     let result = await db.collection("counters").findOne({type: "chats"});
     let chatId = result.counter.toString();
@@ -99,7 +73,14 @@ async function handleNewChat(client, m) {
     let chatId = await dbNewChat(m);
     for (let user of m.users) {
         console.log("ADDING CHAT TO USER: ", user);
-        db.collection("users").updateOne({user: user}, {$push: {chats: chatId}});
+        let name = "";
+        if (m.type === "simple") {
+            name = m.users.filter(u => u !== user)[0];
+        } else {
+            name = m.name;
+        }
+
+        db.collection("users").updateOne({user: user}, {$push: {chats: {chatId, name: name, newMessages: false}}});
     }
 }
 
@@ -108,11 +89,6 @@ async function handleGetChat(client, m) {
         let thisUser = clientUserMap[client.id];
         let chatId = m;
         let result = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0}});
-        // if (result == null) {
-        //     result = {contact: contact, messages: []};
-        // } else {
-        //     result = {contact: contact, messages: result.messages};
-        // }
         console.log("CHAT: ", result);
         client.emit("chat", result);
     } catch (err) {
@@ -124,44 +100,13 @@ async function handleGetAllChats(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
         let result = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
-        console.log("RESULSSS:: ", result);
-        result = await db.collection("chats").find({chatId: {$in: result.chats}}, {
-            projection: {
-                _id: 0,
-                messages: 0
-            }
-        });
-        console.log("aaaaaa:: ", result);
-        let all = await result.toArray();
-        // console.log("*****#####:: ", result);
-        console.log("#####:: ", all);
-        let chats = {};
-        for (let a of all) {
-            console.log("USERS: ", a);
-            chats[a.chatId] = a;
-        }
-        console.log("ALL CHATS: ", chats);
-        console.log("ALL CHATS: ", {chats: chats});
-        client.emit("all:chats", {chats: chats});
+        let response = {chats: result.chats};
+        console.log("ALL CHATS RESPONSE: ", response);
+        client.emit("all:chats", response);
     } catch (err) {
         console.log("ERROR getting chat: ", err);
     }
 }
-
-// async function handleGetContacts(client, m) {
-//     try {
-//         let result = await db.collection("users").findOne({user: clientUserMap[client.id]}, {
-//             projection: {
-//                 _id: 0,
-//                 contacts: 1
-//             }
-//         });
-//         console.log("GET CONTACTS RESULTS: ", result);
-//         client.emit("contacts", result);
-//     } catch (err) {
-//         console.log("ERROR GETTING CONTACTS: ", err);
-//     }
-// }
 
 async function handleSendMessage(client, m) {
     try {
@@ -169,16 +114,9 @@ async function handleSendMessage(client, m) {
         console.log("RECEIVED MESSAGE: ", m);
         let chatId = m.payload.chatId;
         let message = {user: thisUser, content: m.payload.content};
-        // let array = [thisUser, contact];
-        // console.log("BEFORE SORTED: ", array);
-        // array.sort();
-        // console.log("SORTED: ", array);
-        // let res = await db.collection("chats").findOne({});
-        // if (res === null) {
-        //     console.log("no previous messages between this two users:", array);
-        //     let d = await db.collection("chats").insertOne({chatId: chatId, messages: []});
-        // }
+        message = {...message, read: []};
         console.log("CHAT ID: ", chatId);
+        console.log("NEW MESSAGE: ", message);
         let result = await db.collection("chats").updateOne({chatId: chatId}, {$push: {messages: message}});
         console.log("CHAT RECEIVED OK!");
         let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
@@ -209,8 +147,6 @@ io.on("connection", function (client) {
     console.log("A USER CONNECTED!");
     client.on("message", (m) => handleMessage(client, m));
     client.on("new:user", (m) => handleSignup(client, m));
-    // client.on("add:contact", (m) => handleAddContact(client, m));
-    // client.on("get:contacts", (m) => handleGetContacts(client, m));
     client.on("new:chat", (m) => handleNewChat(client, m));
     client.on("get:chat", (m) => handleGetChat(client, m));
     client.on("get:all:chats", (m) => handleGetAllChats(client, m));
