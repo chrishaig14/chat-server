@@ -31,7 +31,7 @@ function handleSignup(client, m) {
     db.collection("users").insertOne({user: m, chats: []});
 }
 
-async function handleLogin(client, m) {
+async function handleLogin(client, m, callback) {
     clientUserMap[client.id] = m;
     userClientMap[m] = client.id;
     console.log("USER LOGGED IN: ", m);
@@ -40,6 +40,8 @@ async function handleLogin(client, m) {
     console.log("LOGIN RESULT: ", result);
     if (result !== null) {
         client.emit("login:ok");
+        console.log("WILL CALL CALLBACK: ", callback);
+        setTimeout(callback, 5000);
     } else {
         client.emit("login:error");
     }
@@ -68,19 +70,10 @@ async function dbNewChat(chat) {
 async function handleNewChat(client, m) {
     console.log("CREATING NEW CHAT: ", m);
     let thisUser = clientUserMap[client.id];
-    // let users = [...m.users, thisUser];
     m.users.push(thisUser);
     let chatId = await dbNewChat(m);
     for (let user of m.users) {
-        console.log("ADDING CHAT TO USER: ", user);
-        let name = "";
-        if (m.type === "simple") {
-            name = m.users.filter(u => u !== user)[0];
-        } else {
-            name = m.name;
-        }
-
-        db.collection("users").updateOne({user: user}, {$push: {chats: {chatId, name: name, newMessages: false}}});
+        db.collection("users").updateOne({user: user}, {$push: {chats: chatId}});
     }
 }
 
@@ -99,45 +92,68 @@ async function handleGetChat(client, m) {
 async function handleGetAllChats(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
-        let result = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
-        let response = {chats: result.chats};
-        console.log("ALL CHATS RESPONSE: ", response);
-        client.emit("all:chats", response);
+        let chatIds = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
+        let chats = await db.collection("chats").find({chatId: {$in: chatIds.chats}});
+        // let response = {chats: result.chats};
+        // console.log("ALL CHATS RESPONSE: ", response);
+        chats = await chats.toArray();
+        let chatsObj = {};
+        for (let chat of chats) {
+            chatsObj[chat.chatId] = chat;
+        }
+        client.emit("all:chats", {chats: chatsObj});
     } catch (err) {
         console.log("ERROR getting chat: ", err);
+    }
+}
+
+async function handleMarkAsRead(client, m) {
+    console.log("MARKING AS READ: ", m);
+    let thisUser = clientUserMap[client.id];
+    let chat = await db.collection("chats").findOne({chatId: m.chatId});
+    console.log("FOUND CHAT: ", chat);
+    let messages = chat.messages;
+    console.log("ALL MESSAGES: ", messages);
+    let msgsRead = [];
+    for (let msgId of m.messageIds) {
+        for (let msg of messages) {
+            if (msg.messageId === msgId) {
+                msg.read.push(thisUser);
+                msgsRead.push({messageId: msg.messageId, read: msg.read});
+            }
+        }
+    }
+    db.collection("chats").updateOne({chatId: m.chatId}, {$set: {messages: messages}});
+    for (let user of chat.users) {
+        if (userClientMap.hasOwnProperty(user)) {
+            let userClient = io.sockets.sockets[userClientMap[user]];
+            setTimeout(() => {
+                console.log("SENDING ACK:READ TO ", user);
+                userClient.emit("ack:read", {chatId: m.chatId, messagesRead: msgsRead});
+            }, 0);
+        }
     }
 }
 
 async function handleSendMessage(client, m) {
     try {
         let thisUser = clientUserMap[client.id];
-        console.log("RECEIVED MESSAGE: ", m);
         let chatId = m.payload.chatId;
         let message = {user: thisUser, content: m.payload.content};
-        message = {...message, read: []};
-        console.log("CHAT ID: ", chatId);
-        console.log("NEW MESSAGE: ", message);
+        let counter = await db.collection("counters").findOne({type: "messages"});
+        let messageId = counter.counter;
+        db.collection("counters").updateOne({type: "messages"}, {$set: {counter: messageId + 1}});
+        message = {...message, read: [thisUser], messageId};
         let result = await db.collection("chats").updateOne({chatId: chatId}, {$push: {messages: message}});
-        console.log("CHAT RECEIVED OK!");
         let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
-        console.log("USERS IN CHAT: ", users);
         users = users.users.filter(user => user !== thisUser);
-        console.log("CNNECTED USERS:", userClientMap);
         for (let user of users) {
-            console.log("USER IS: ", user);
             if (userClientMap.hasOwnProperty(user)) {
                 let socket = io.sockets.sockets[userClientMap[user]];
-                console.log("SOCKET IS: ", socket);
                 socket.emit("new:message", {chatId: chatId, message: message});
             }
         }
-        setTimeout(() => client.emit("ack:message", m.sqn), 5000);
-        // client.emit("ack:message",m.sqn)
-        // if (result == null) {
-        //     result = {user: contact, messages: []};
-        // }
-        // console.log("CHAT: ", result);
-        // client.emit("chat", result);
+        setTimeout(() => client.emit("ack:message", {sqn: m.sqn, chatId, message}), 0);
     } catch (err) {
         console.log("ERROR receiving chat: ", err);
     }
@@ -150,9 +166,10 @@ io.on("connection", function (client) {
     client.on("new:chat", (m) => handleNewChat(client, m));
     client.on("get:chat", (m) => handleGetChat(client, m));
     client.on("get:all:chats", (m) => handleGetAllChats(client, m));
-    client.on("login", (m) => handleLogin(client, m));
+    client.on("login", (m, callback) => handleLogin(client, m, callback));
     client.on("disconnect", (m) => handleDisconnect(client, m));
     client.on("send:message", (m) => handleSendMessage(client, m));
+    client.on("mark:read", (m) => handleMarkAsRead(client, m));
 });
 
 server.listen(3000);
