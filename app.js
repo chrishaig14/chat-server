@@ -159,6 +159,14 @@ async function handleSendMessage(client, m) {
     }
 }
 
+async function handleSuggestUsers(client, m, callback) {
+    let users = await db.collection("users").find({user: {$regex: "\^" + m}});
+    users = await users.toArray();
+    users = users.map(u => u.user);
+    console.log("SUGGEST USERS: ", users);
+    callback(users);
+}
+
 io.on("connection", function (client) {
     console.log("A USER CONNECTED!");
     client.on("message", (m) => handleMessage(client, m));
@@ -170,6 +178,7 @@ io.on("connection", function (client) {
     client.on("disconnect", (m) => handleDisconnect(client, m));
     client.on("send:message", (m) => handleSendMessage(client, m));
     client.on("mark:read", (m) => handleMarkAsRead(client, m));
+    client.on("suggest:users", (m, callback) => handleSuggestUsers(client, m, callback));
 });
 
 server.listen(3000);
