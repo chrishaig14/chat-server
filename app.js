@@ -34,16 +34,18 @@ function handleSignup(client, m) {
 async function handleLogin(client, m, callback) {
     clientUserMap[client.id] = m;
     userClientMap[m] = client.id;
-    console.log("USER LOGGED IN: ", m);
-    console.log("LOGGED USERS:", userClientMap);
+    // console.log("USER LOGGED IN: ", m);
+    // console.log("LOGGED USERS:", userClientMap);
     let result = await db.collection("users").findOne({user: m});
-    console.log("LOGIN RESULT: ", result);
+    // console.log("LOGIN RESULT: ", result);
     if (result !== null) {
-        client.emit("login:ok");
-        console.log("WILL CALL CALLBACK: ", callback);
-        setTimeout(callback, 5000);
+        // client.emit("login:ok");
+        console.log("[] User log in: ", m);
+        callback();
+        // setTimeout(callback, 5000);
     } else {
-        client.emit("login:error");
+        // client.emit("login:error");
+        console.log("[] Error in user log in: ", m);
     }
 }
 
@@ -58,23 +60,25 @@ function handleDisconnect(client, m) {
 async function dbNewChat(chat) {
     let result = await db.collection("counters").findOne({type: "chats"});
     let chatId = result.counter.toString();
-    await db.collection("chats").insertOne({
+    let chatObj = {
         chatId: chatId,
         ...chat,
         messages: []
-    });
+    };
+    await db.collection("chats").insertOne(chatObj);
     db.collection("counters").updateOne({type: "chats"}, {$set: {counter: result.counter + 1}});
-    return chatId;
+    return chatObj;
 }
 
-async function handleNewChat(client, m) {
+async function handleNewChat(client, m, callback) {
     console.log("CREATING NEW CHAT: ", m);
     let thisUser = clientUserMap[client.id];
     m.users.push(thisUser);
-    let chatId = await dbNewChat(m);
+    let chatObj = await dbNewChat(m);
     for (let user of m.users) {
-        db.collection("users").updateOne({user: user}, {$push: {chats: chatId}});
+        db.collection("users").updateOne({user: user}, {$push: {chats: chatObj.chatId}});
     }
+    callback(chatObj);
 }
 
 async function handleGetChat(client, m) {
@@ -89,7 +93,7 @@ async function handleGetChat(client, m) {
     }
 }
 
-async function handleGetAllChats(client, m) {
+async function handleGetAllChats(client, callback) {
     try {
         let thisUser = clientUserMap[client.id];
         let chatIds = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
@@ -101,7 +105,8 @@ async function handleGetAllChats(client, m) {
         for (let chat of chats) {
             chatsObj[chat.chatId] = chat;
         }
-        client.emit("all:chats", {chats: chatsObj});
+        // client.emit("all:chats", {chats: chatsObj});
+        callback(chatsObj);
     } catch (err) {
         console.log("ERROR getting chat: ", err);
     }
@@ -168,12 +173,12 @@ async function handleSuggestUsers(client, m, callback) {
 }
 
 io.on("connection", function (client) {
-    console.log("A USER CONNECTED!");
+    console.log("[] New connection");
     client.on("message", (m) => handleMessage(client, m));
     client.on("new:user", (m) => handleSignup(client, m));
-    client.on("new:chat", (m) => handleNewChat(client, m));
+    client.on("new:chat", (m, callback) => handleNewChat(client, m, callback));
     client.on("get:chat", (m) => handleGetChat(client, m));
-    client.on("get:all:chats", (m) => handleGetAllChats(client, m));
+    client.on("get:all:chats", (callback) => handleGetAllChats(client, callback));
     client.on("login", (m, callback) => handleLogin(client, m, callback));
     client.on("disconnect", (m) => handleDisconnect(client, m));
     client.on("send:message", (m) => handleSendMessage(client, m));
