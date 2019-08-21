@@ -140,15 +140,18 @@ async function handleMarkAsRead(client, m) {
     }
 }
 
-async function handleSendMessage(client, m) {
+async function handleSendMessage(client, m, callback) {
     try {
+        console.log("[] Received: ", m);
         let thisUser = clientUserMap[client.id];
-        let chatId = m.payload.chatId;
-        let message = {user: thisUser, content: m.payload.content};
+        let chatId = m.chatId;
+        let message = {user: thisUser, content: m.content};
+        console.log("[] Message to be sent to chat ", chatId, " : ", message);
         let counter = await db.collection("counters").findOne({type: "messages"});
         let messageId = counter.counter;
         db.collection("counters").updateOne({type: "messages"}, {$set: {counter: messageId + 1}});
-        message = {...message, read: [thisUser], messageId};
+        message = {...message, read: [thisUser], messageId, timestamp: (new Date()).toISOString()};
+        console.log("[] After adding data: ", message);
         let result = await db.collection("chats").updateOne({chatId: chatId}, {$push: {messages: message}});
         let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
         users = users.users.filter(user => user !== thisUser);
@@ -158,7 +161,8 @@ async function handleSendMessage(client, m) {
                 socket.emit("new:message", {chatId: chatId, message: message});
             }
         }
-        setTimeout(() => client.emit("ack:message", {sqn: m.sqn, chatId, message}), 0);
+        console.log("[] Received new message: ", message);
+        callback(message);
     } catch (err) {
         console.log("ERROR receiving chat: ", err);
     }
@@ -181,7 +185,7 @@ io.on("connection", function (client) {
     client.on("get:all:chats", (callback) => handleGetAllChats(client, callback));
     client.on("login", (m, callback) => handleLogin(client, m, callback));
     client.on("disconnect", (m) => handleDisconnect(client, m));
-    client.on("send:message", (m) => handleSendMessage(client, m));
+    client.on("send:message", (m, callback) => handleSendMessage(client, m, callback));
     client.on("mark:read", (m) => handleMarkAsRead(client, m));
     client.on("suggest:users", (m, callback) => handleSuggestUsers(client, m, callback));
 });
