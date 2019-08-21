@@ -150,7 +150,7 @@ async function handleSendMessage(client, m, callback) {
         let counter = await db.collection("counters").findOne({type: "messages"});
         let messageId = counter.counter;
         db.collection("counters").updateOne({type: "messages"}, {$set: {counter: messageId + 1}});
-        message = {...message, read: [thisUser], messageId, timestamp: (new Date()).toISOString()};
+        message = {...message, read: [], messageId, timestamp: (new Date()).toISOString()};
         console.log("[] After adding data: ", message);
         let result = await db.collection("chats").updateOne({chatId: chatId}, {$push: {messages: message}});
         let users = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0, users: 1}});
