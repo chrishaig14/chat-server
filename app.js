@@ -34,17 +34,11 @@ function handleSignup(client, m) {
 async function handleLogin(client, m, callback) {
     clientUserMap[client.id] = m;
     userClientMap[m] = client.id;
-    // console.log("USER LOGGED IN: ", m);
-    // console.log("LOGGED USERS:", userClientMap);
     let result = await db.collection("users").findOne({user: m});
-    // console.log("LOGIN RESULT: ", result);
     if (result !== null) {
-        // client.emit("login:ok");
         console.log("[] User log in: ", m);
         callback();
-        // setTimeout(callback, 5000);
     } else {
-        // client.emit("login:error");
         console.log("[] Error in user log in: ", m);
     }
 }
@@ -81,31 +75,16 @@ async function handleNewChat(client, m, callback) {
     callback(chatObj);
 }
 
-async function handleGetChat(client, m) {
-    try {
-        let thisUser = clientUserMap[client.id];
-        let chatId = m;
-        let result = await db.collection("chats").findOne({chatId: chatId}, {projection: {_id: 0}});
-        console.log("CHAT: ", result);
-        client.emit("chat", result);
-    } catch (err) {
-        console.log("ERROR getting chat: ", err);
-    }
-}
-
 async function handleGetAllChats(client, callback) {
     try {
         let thisUser = clientUserMap[client.id];
         let chatIds = await db.collection("users").findOne({user: thisUser}, {projection: {_id: 0, chats: 1}});
         let chats = await db.collection("chats").find({chatId: {$in: chatIds.chats}});
-        // let response = {chats: result.chats};
-        // console.log("ALL CHATS RESPONSE: ", response);
         chats = await chats.toArray();
         let chatsObj = {};
         for (let chat of chats) {
             chatsObj[chat.chatId] = chat;
         }
-        // client.emit("all:chats", {chats: chatsObj});
         callback(chatsObj);
     } catch (err) {
         console.log("ERROR getting chat: ", err);
@@ -181,7 +160,6 @@ io.on("connection", function (client) {
     client.on("message", (m) => handleMessage(client, m));
     client.on("new:user", (m) => handleSignup(client, m));
     client.on("new:chat", (m, callback) => handleNewChat(client, m, callback));
-    client.on("get:chat", (m) => handleGetChat(client, m));
     client.on("get:all:chats", (callback) => handleGetAllChats(client, callback));
     client.on("login", (m, callback) => handleLogin(client, m, callback));
     client.on("disconnect", (m) => handleDisconnect(client, m));
